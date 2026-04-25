@@ -1,0 +1,7 @@
+rules:
+  - id: flask-debug-true
+    patterns:
+      - pattern: app.run(..., debug=True, ...)
+    message: "Security Risk: Running Flask in debug mode is strictly prohibited in production."
+    languages: [python]
+    severity: ERROR
