@@ -1,223 +1,136 @@
 name: DevSecOps Pipeline
  
 on:
-
   push:
-
     branches: [ "main" ]
-
   pull_request:
-
     branches: [ "main" ]
-
   workflow_dispatch:
  
 jobs:
-
   security-and-linting:
-
     name: Source & Dependency Security
-
     runs-on: ubuntu-latest
-
     steps:
-
       - name: Checkout code
-
         uses: actions/checkout@v4
-
       - name: Set up Python
-
         uses: actions/setup-python@v5
-
         with:
-
           python-version: '3.11'
 
       - name: Install Application Dependencies
-
         run: |
-
           python -m pip install --upgrade pip
-
           pip install -r requirements.txt
-
+          
       - name: Install Security Tools (Isolated)
-
         run: |
-
           pipx install bandit
-
           pipx install pip-audit
-
           pipx install semgrep
 
       - name: SAST - Semgrep (Secrets & Logic)
-
         run: semgrep ci --config .semgrep.yml --json -o semgrep-report.json
 
       - name: SAST - Bandit
-
         run: bandit -r app/ -f json -o bandit-report.json
 
       - name: SCA - pip-audit
-
         run: pip-audit -r requirements.txt -f json -o pip-audit-report.json
  
       - name: Upload Security Scans
-
         uses: actions/upload-artifact@v4
-
         if: always()
-
         with:
-
           name: source-security-reports
-
           path: |
-
             semgrep-report.json
-
             bandit-report.json
-
             pip-audit-report.json
-
           retention-days: 14
  
   unit-tests:
-
     name: Application Testing
-
     runs-on: ubuntu-latest
-
     needs: security-and-linting
-
     steps:
-
       - name: Checkout code
-
         uses: actions/checkout@v4
-
+        
       - name: Set up Python
-
         uses: actions/setup-python@v5
-
         with:
-
           python-version: '3.11'
-
+          
       - name: Install dependencies
-
         run: |
-
           python -m pip install --upgrade pip
-
           pip install -r requirements.txt pytest
 
       - name: Run Unit Tests
-
         run: pytest tests/ -v
  
   build-and-scan-container:
-
     name: Container Build & Security Evidence
-
     runs-on: ubuntu-latest
-
     needs: unit-tests
-
     steps:
-
       - name: Checkout code
-
         uses: actions/checkout@v4
-
+        
       - name: Build Docker image
-
         run: docker build -t secure-app:${{ github.sha }} .
 
       - name: Container Vulnerability Scan with Trivy
-
         uses: aquasecurity/trivy-action@master
-
         with:
-
           image-ref: 'secure-app:${{ github.sha }}'
-
           format: 'json'
 
           output: 'trivy-report.json'
-
           exit-code: '1'
-
           ignore-unfixed: true
-
-          vuln-type: 'os,library'
-
-          severity: 'CRITICAL,HIGH'
+          vuln-type: 'os, library.'
+          severity: 'CRITICAL, HIGH.'
  
       - name: Generate CycloneDX SBOM with Syft
-
         uses: anchore/sbom-action@v0
 
         with:
 
           image: secure-app:${{ github.sha }}
-
           format: cyclonedx-json
-
           output-file: secure-app-sbom.json
  
       - name: Upload Container Artifacts
-
         uses: actions/upload-artifact@v4
-
         with:
-
           name: container-security-artifacts
-
           path: |
-
             trivy-report.json
-
             secure-app-sbom.json
-
           retention-days: 14
  
   promote-artifact:
-
     name: Mark Trusted Build
-
     runs-on: ubuntu-latest
-
     needs: build-and-scan-container
-
     steps:
-
+    
       - name: Generate Promotion Provenance
-
         run: |
-
           echo "=== TRUSTED ARTIFACT ATTESTATION ===" > provenance.txt
-
           echo "IMAGE: secure-app:${{ github.sha }}" >> provenance.txt
-
           echo "COMMIT: ${{ github.sha }}" >> provenance.txt
-
           echo "STATUS: PASSED_ALL_CHECKS" >> provenance.txt
-
           echo "TIMESTAMP: $(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> provenance.txt
  
       - name: Upload Provenance Artifact
-
         uses: actions/upload-artifact@v4
-
         with:
-
           name: build-provenance
-
           path: provenance.txt
-
           retention-days: 30
 
  
